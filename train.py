@@ -1,3 +1,7 @@
+import torch
+
+import numpy as np
+from ACT.training.utils import make_policy, make_optimizer, compute_dict_mean, detach_dict, set_seed, load_data
 from config.config import POLICY_CONFIG, TASK_CONFIG, TRAIN_CONFIG # must import first
 
 import os
@@ -6,7 +10,6 @@ import argparse
 from copy import deepcopy
 import matplotlib.pyplot as plt
 
-from training.utils import *
 
 # parse the task name via command line
 parser = argparse.ArgumentParser()
@@ -22,6 +25,8 @@ checkpoint_dir = os.path.join(train_cfg['checkpoint_dir'], task)
 
 # device
 device = os.environ['DEVICE']
+
+
 
 
 def forward_pass(data, policy):
@@ -62,12 +67,14 @@ def train_bc(train_dataloader, val_dataloader, policy_config):
     min_val_loss = np.inf
     best_ckpt_info = None
     for epoch in range(train_cfg['num_epochs']):
-        print(f'\nEpoch {epoch}')
+        print(f'\nEpoch {epoch} / {train_cfg["num_epochs"]} ')
         # validation
         with torch.inference_mode():
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
+                for d in data:
+                    print(d.shape)
                 forward_dict = forward_pass(data, policy)
                 epoch_dicts.append(forward_dict)
             epoch_summary = compute_dict_mean(epoch_dicts)
@@ -118,7 +125,7 @@ if __name__ == '__main__':
     os.makedirs(checkpoint_dir, exist_ok=True)
    # number of training episodes
     data_dir = os.path.join(task_cfg['dataset_dir'], task)
-    num_episodes = len(os.listdir(data_dir))
+    num_episodes = len(os.listdir(data_dir))-1
 
     # load data
     train_dataloader, val_dataloader, stats, _ = load_data(data_dir, num_episodes, task_cfg['camera_names'],

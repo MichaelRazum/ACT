@@ -52,7 +52,7 @@ class Robot:
         self._disable_torque()
         self.motor_control_state = MotorControlType.DISABLED
 
-    def read_position(self, tries=2):
+    def  read_position(self, tries=2):
         """
         Reads the joint positions of the robot. 2048 is the center position. 0 and 4096 are 180 degrees in each direction.
         :param tries: maximum number of tries to read the position

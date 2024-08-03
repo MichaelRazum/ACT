@@ -11,7 +11,7 @@ from robot import Robot
 
 # parse the task name via command line
 parser = argparse.ArgumentParser()
-parser.add_argument('--task', type=str, default='task1')
+parser.add_argument('--task', type=str, default='taskplay')
 parser.add_argument('--num_episodes', type=int, default=1)
 args = parser.parse_args()
 task = args.task
@@ -35,6 +35,11 @@ def capture_image(cam):
 
     return image
 
+def set_default_position(servo):
+    l = [122, 0, 0, 0, 0, 0]
+    for n, v in enumerate(l):
+        servo.run(n + 1, v, 500)
+
 
 if __name__ == "__main__":
     # init camera
@@ -51,7 +56,7 @@ if __name__ == "__main__":
     
     for i in range(num_episodes):
         # bring the follower to the leader and start camera
-        for i in range(200):
+        for i in tqdm(range(15)):
             follower.set_goal_pos(leader.read_position())
             _ = capture_image(cam)
         os.system('say "go"')
@@ -62,6 +67,7 @@ if __name__ == "__main__":
             # observation
             qpos = follower.read_position()
             qvel = follower.read_velocity()
+            print('pos_old', qpos)
             image = capture_image(cam)
             obs = {
                 'qpos': pwm2pos(qpos),
@@ -70,6 +76,7 @@ if __name__ == "__main__":
             }
             # action (leader's position)
             action = leader.read_position()
+            print('pos_new', action)
             # apply action
             follower.set_goal_pos(action)
             action = pwm2pos(action)

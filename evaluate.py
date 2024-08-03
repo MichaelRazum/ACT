@@ -1,3 +1,8 @@
+import subprocess
+
+import h5py
+
+from ACT.training.utils import make_policy, vel2pwm, get_image
 from config.config import POLICY_CONFIG, TASK_CONFIG, TRAIN_CONFIG, ROBOT_PORTS # must import first
 
 import os
@@ -5,15 +10,68 @@ import cv2
 import torch
 import pickle
 import argparse
-from time import time
+from time import time, sleep
 
-from robot import Robot
-from training.utils import *
+from teleopt import BusServoRemoteTelopt
+import numpy as np
+
+def set_default_position(servo):
+    l = [122, 0, 0, 0, 0, 0]
+    for n, v in enumerate(l):
+        servo.run(n + 1, v, 500)
+
+
+
+
+def pwm2pos(pwm:np.ndarray) -> np.ndarray:
+    """
+    :param pwm: numpy array of pwm values in range [0, 4096]
+    :return: numpy array of joint positions in range [-pi*1.33, pi*1.33]
+    """
+    return (pwm / 500 - 1) * 4.19
+
+def pwm2vel(pwm:np.ndarray) -> np.ndarray:
+    """
+    :param pwm: numpy array of pwm/s joint velocities
+    :return: numpy array of rad/s joint velocities
+    """
+    return pwm * 4.19 / 500
+
+def pos2pwm(pos:np.ndarray) -> np.ndarray:
+    """
+    :param pos: numpy array of joint positions in range [-pi, pi]
+    :return: numpy array of pwm values in range [0, 4096]
+    """
+    return (pos /  4.19 + 1.) * 500
+
+def set_default_position(servo):
+    l = [80, 500, 500, 500, 500, 500]
+    for n, pwm in enumerate(l):
+        pos = pwm2pos(pwm)
+        v  = pos2pwm(pos)
+
+        servo.run(n + 1, int(v), 800)
+
+def find_webcam_index(device_name):
+    command = "v4l2-ctl --list-devices"
+    output = subprocess.check_output(command, shell=True, text=True)
+    devices = output.split('\n\n')
+
+    for device in devices:
+        #print(device)
+        if device_name in device:
+            lines = device.split('\n')
+            for line in lines:
+                if "video" in line:
+                    parts = line.split()
+                    for part in parts:
+                        if part.startswith('/dev/video'):
+                            return (part)
 
 
 # parse the task name via command line
 parser = argparse.ArgumentParser()
-parser.add_argument('--task', type=str, default='task1')
+parser.add_argument('--task', type=str, default='task2')
 args = parser.parse_args()
 task = args.task
 
@@ -29,24 +87,32 @@ def capture_image(cam):
     _, frame = cam.read()
     # Generate a unique filename with the current date and time
     image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    # Define your crop coordinates (top left corner and bottom right corner)
-    x1, y1 = 400, 0  # Example starting coordinates (top left of the crop rectangle)
-    x2, y2 = 1600, 900  # Example ending coordinates (bottom right of the crop rectangle)
-    # Crop the image
-    image = image[y1:y2, x1:x2]
-    # Resize the image
-    image = cv2.resize(image, (cfg['cam_width'], cfg['cam_height']), interpolation=cv2.INTER_AREA)
-
+    # cv2.imshow('asdf', image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    # image = cv2.resize(image, (cfg['cam_width'], cfg['cam_height']), interpolation=cv2.INTER_AREA)
+    # cv2.imshow('asdf', image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     return image
 
 if __name__ == "__main__":
     # init camera
-    cam = cv2.VideoCapture(cfg['camera_port'])
+    # cam = cv2.VideoCapture(cfg['camera_port'])
+    cam = cv2.VideoCapture(find_webcam_index("C922 Pro Stream Webcam"))
     # Check if the camera opened successfully
     if not cam.isOpened():
         raise IOError("Cannot open camera")
     # init follower
-    follower = Robot(device_name=ROBOT_PORTS['follower'])
+    # follower = Robot(device_name=ROBOT_PORTS['follower'])
+    follower = BusServoRemoteTelopt('/dev/ttyUSB1')
+
+    os.system('espeak "setting follower"')
+    follower.enable_torque()
+    sleep(5)
+
+    for _ in range(10):
+        set_default_position(follower)
 
     # load the policy
     ckpt_path = os.path.join(train_cfg['checkpoint_dir'], train_cfg['eval_ckpt_name'])
@@ -118,7 +184,10 @@ if __name__ == "__main__":
                 action = post_process(raw_action)
                 action = pos2pwm(action).astype(int)
                 ### take action
-                follower.set_goal_pos(action)
+                pos_old = follower.read_position()
+                max_diff = np.max(np.abs(np.array(pos_old) - np.array(action)))
+                servo_runtime = int(100 + 500 * min(max_diff, 250) / 250)
+                follower.set_goal_pos(action, servo_runtime=servo_runtime)
 
                 ### update obs
                 obs = {
